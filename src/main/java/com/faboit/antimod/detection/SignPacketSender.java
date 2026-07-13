@@ -257,46 +257,99 @@ public final class SignPacketSender {
     private Object resolveSignBlockEntityType() {
         if (cachedSignBlockEntityType != null) return cachedSignBlockEntityType;
 
+        // Use the server's own class loader — essential when plugins like
+        // Nemesis/PacketEvents run alongside and may affect class resolution.
+        ClassLoader serverCL = Bukkit.getServer().getClass().getClassLoader();
+
         // Strategy 1: Direct field access on Mojang-mapped Paper/Purpur (1.20.5+).
-        // The class and field are named exactly as in Mojang's source.
         try {
-            Class<?> clazz = Class.forName("net.minecraft.world.level.block.entity.BlockEntityType");
-            Field f = clazz.getField("SIGN");
-            Object val = f.get(null);
-            if (val != null) {
-                cachedSignBlockEntityType = val;
-                plugin.getLogger().info("[AntiMod] Resolved BlockEntityType.SIGN via direct field access.");
-                return cachedSignBlockEntityType;
+            Class<?> clazz = Class.forName(
+                    "net.minecraft.world.level.block.entity.BlockEntityType", true, serverCL);
+            try {
+                Field f = clazz.getField("SIGN");
+                f.setAccessible(true);
+                Object val = f.get(null);
+                if (val != null) {
+                    cachedSignBlockEntityType = val;
+                    plugin.getLogger().info("[AntiMod] Resolved BlockEntityType.SIGN via direct field.");
+                    return cachedSignBlockEntityType;
+                }
+            } catch (NoSuchFieldException e) {
+                // Field doesn't exist under this name — dump what's available.
+                plugin.getLogger().warning("[AntiMod] Strategy 1: No field named 'SIGN'. Fields with 'sign' in name:");
+                for (Field f : clazz.getDeclaredFields()) {
+                    if (f.getName().toLowerCase().contains("sign")) {
+                        plugin.getLogger().warning("[AntiMod]   - " + f.getName() + " (type: " + f.getType().getSimpleName() + ")");
+                    }
+                }
             }
-        } catch (Exception e) {
-            plugin.getLogger().fine("[AntiMod] Strategy 1 (direct field) failed: " + e.getMessage());
+        } catch (Throwable e) {
+            plugin.getLogger().warning("[AntiMod] Strategy 1 failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
 
-        // Strategy 2: Registry lookup via BuiltInRegistries.BLOCK_ENTITY_TYPE.
+        // Strategy 2: Construct a SignBlockEntity and call getType() on it.
+        // This avoids field-name issues entirely — we instantiate the NMS object
+        // and let it return its own type.
         try {
-            Class<?> registries = Class.forName("net.minecraft.core.registries.BuiltInRegistries");
+            Class<?> signBE = Class.forName(
+                    "net.minecraft.world.level.block.entity.SignBlockEntity", true, serverCL);
+            Class<?> blockPosClass = Class.forName(
+                    "net.minecraft.core.BlockPos", true, serverCL);
+            Class<?> blockStateClass = Class.forName(
+                    "net.minecraft.world.level.block.state.BlockState", true, serverCL);
+            Class<?> blocksClass = Class.forName(
+                    "net.minecraft.world.level.block.Blocks", true, serverCL);
+
+            // Get BlockPos.ZERO
+            Field zeroPosField = blockPosClass.getField("ZERO");
+            Object zeroPos = zeroPosField.get(null);
+
+            // Get Blocks.OAK_SIGN.defaultBlockState()
+            Field oakSignField = blocksClass.getField("OAK_SIGN");
+            Object oakSignBlock = oakSignField.get(null);
+            Method defaultBlockState = oakSignBlock.getClass().getMethod("defaultBlockState");
+            Object defaultState = defaultBlockState.invoke(oakSignBlock);
+
+            // Construct SignBlockEntity(BlockPos, BlockState)
+            java.lang.reflect.Constructor<?> ctor = signBE.getConstructor(blockPosClass, blockStateClass);
+            Object signEntity = ctor.newInstance(zeroPos, defaultState);
+
+            // Call getType() which returns BlockEntityType<SignBlockEntity>
+            Method getType = signEntity.getClass().getMethod("getType");
+            Object type = getType.invoke(signEntity);
+            if (type != null) {
+                cachedSignBlockEntityType = type;
+                plugin.getLogger().info("[AntiMod] Resolved BlockEntityType.SIGN via SignBlockEntity.getType().");
+                return cachedSignBlockEntityType;
+            }
+        } catch (Throwable e) {
+            plugin.getLogger().warning("[AntiMod] Strategy 2 (construct SignBlockEntity) failed: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+            if (e.getCause() != null) {
+                plugin.getLogger().warning("[AntiMod]   Caused by: "
+                        + e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage());
+            }
+        }
+
+        // Strategy 3: Registry lookup via BuiltInRegistries.BLOCK_ENTITY_TYPE.
+        try {
+            Class<?> registries = Class.forName(
+                    "net.minecraft.core.registries.BuiltInRegistries", true, serverCL);
             Field regField = registries.getField("BLOCK_ENTITY_TYPE");
             Object registry = regField.get(null);
 
-            // Build ResourceLocation for "minecraft:sign"
             Object signRL = null;
-            Class<?> rlClass = Class.forName("net.minecraft.resources.ResourceLocation");
+            Class<?> rlClass = Class.forName(
+                    "net.minecraft.resources.ResourceLocation", true, serverCL);
 
-            // Try ResourceLocation.parse("minecraft:sign") first (1.21+)
-            try {
-                Method parse = rlClass.getMethod("parse", String.class);
-                signRL = parse.invoke(null, "minecraft:sign");
-            } catch (NoSuchMethodException ignored) {}
-
-            // Fallback: ResourceLocation.withDefaultNamespace("sign") (1.21+)
-            if (signRL == null) {
+            for (String methodName : new String[]{"parse", "withDefaultNamespace"}) {
                 try {
-                    Method wdn = rlClass.getMethod("withDefaultNamespace", String.class);
-                    signRL = wdn.invoke(null, "sign");
+                    Method m = rlClass.getMethod(methodName, String.class);
+                    signRL = m.invoke(null,
+                            methodName.equals("parse") ? "minecraft:sign" : "sign");
+                    break;
                 } catch (NoSuchMethodException ignored) {}
             }
-
-            // Fallback: new ResourceLocation("minecraft", "sign") (older)
             if (signRL == null) {
                 try {
                     signRL = rlClass.getConstructor(String.class, String.class)
@@ -305,30 +358,33 @@ public final class SignPacketSender {
             }
 
             if (signRL != null) {
-                // Registry implements IdMap which has get(ResourceLocation)
-                // Try getValueOrThrow, getValue, get, getOptional in order
-                for (String methodName : new String[]{"getValue", "get", "getValueOrThrow"}) {
+                // Walk up the class hierarchy to find the getter method
+                // (Registry extends MappedRegistry extends WritableRegistry etc.)
+                for (String getter : new String[]{"getValue", "get", "getValueOrThrow"}) {
                     try {
-                        Method getter = registry.getClass().getMethod(methodName, rlClass);
-                        Object val = getter.invoke(registry, signRL);
-                        if (val != null) {
-                            cachedSignBlockEntityType = val;
-                            plugin.getLogger().info("[AntiMod] Resolved BlockEntityType.SIGN via registry lookup (" + methodName + ").");
-                            return cachedSignBlockEntityType;
+                        Method m = findMethod(registry.getClass(), getter, rlClass);
+                        if (m != null) {
+                            m.setAccessible(true);
+                            Object val = m.invoke(registry, signRL);
+                            if (val != null) {
+                                cachedSignBlockEntityType = val;
+                                plugin.getLogger().info("[AntiMod] Resolved BlockEntityType.SIGN via registry (" + getter + ").");
+                                return cachedSignBlockEntityType;
+                            }
                         }
                     } catch (Exception ignored) {}
                 }
             }
-        } catch (Exception e) {
-            plugin.getLogger().fine("[AntiMod] Strategy 2 (registry) failed: " + e.getMessage());
+        } catch (Throwable e) {
+            plugin.getLogger().warning("[AntiMod] Strategy 3 (registry) failed: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
 
-        // Strategy 3: ProtocolLib's MinecraftReflection + field scan by type.
+        // Strategy 4: ProtocolLib MinecraftReflection + field scan by toString.
         try {
             Class<?> clazz = MinecraftReflection.getMinecraftClass(
                     "world.level.block.entity.BlockEntityType",
                     "world.level.block.entity.TileEntityTypes");
-            // Look for any static field of type BlockEntityType whose toString contains "sign"
             for (Field f : clazz.getDeclaredFields()) {
                 if (!Modifier.isStatic(f.getModifiers())) continue;
                 if (!f.getType().equals(clazz)) continue;
@@ -343,11 +399,39 @@ public final class SignPacketSender {
                     }
                 }
             }
-        } catch (Exception e) {
-            plugin.getLogger().fine("[AntiMod] Strategy 3 (field scan) failed: " + e.getMessage());
+            plugin.getLogger().warning("[AntiMod] Strategy 4: class loaded but no sign field found. " +
+                    "Fields of type " + clazz.getSimpleName() + ": " + countFields(clazz));
+        } catch (Throwable e) {
+            plugin.getLogger().warning("[AntiMod] Strategy 4 (field scan) failed: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
 
-        plugin.getLogger().severe("[AntiMod] All strategies to resolve BlockEntityType.SIGN failed!");
+        plugin.getLogger().severe("[AntiMod] All strategies to resolve BlockEntityType.SIGN failed! " +
+                "Server: " + Bukkit.getVersion() + " / " + Bukkit.getBukkitVersion());
         return null;
+    }
+
+    /** Walk a class hierarchy to find a method by name and parameter type. */
+    private static Method findMethod(Class<?> clazz, String name, Class<?> paramType) {
+        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
+            try {
+                return c.getDeclaredMethod(name, paramType);
+            } catch (NoSuchMethodException ignored) {}
+        }
+        for (Class<?> iface : clazz.getInterfaces()) {
+            try {
+                return iface.getDeclaredMethod(name, paramType);
+            } catch (NoSuchMethodException ignored) {}
+        }
+        return null;
+    }
+
+    /** Count static fields of the same type as the class (diagnostic). */
+    private static int countFields(Class<?> clazz) {
+        int count = 0;
+        for (Field f : clazz.getDeclaredFields()) {
+            if (Modifier.isStatic(f.getModifiers()) && f.getType().equals(clazz)) count++;
+        }
+        return count;
     }
 }
