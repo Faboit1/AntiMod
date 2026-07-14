@@ -9,14 +9,14 @@ Inspired by the technique used on DonutSMP.
 ## Requirements
 
 - **Paper 1.21.6** (also works on later 1.21.x; other versions untested)
-- **ProtocolLib 5.4.0+**  
-  For Minecraft 1.21.6+ you may need the latest dev build from https://ci.dmulloy2.net/job/ProtocolLib/ if 5.4.0 stable doesn't yet support your specific 1.21.x point release.
+- **PacketEvents 2.7.0+**  
+  Download the Spigot/Paper build from https://modrinth.com/plugin/packetevents (or the SpigotMC page). PacketEvents is used instead of ProtocolLib so AntiMod plays nicely with anti-cheats such as Nemesis that already hook into the netty pipeline via PacketEvents.
 - **Java 21**
 
 ## Installation
 
 1. Drop `AntiMod-1.0.0.jar` into `plugins/`.
-2. Ensure `ProtocolLib` is also in `plugins/`.
+2. Ensure `packetevents` (the plugin) is also in `plugins/`.
 3. Start the server once to generate `plugins/AntiMod/config.yml`.
 4. Edit `config.yml` to configure the mods and actions you want.
 5. `/antimod reload` (or restart) to apply changes.
@@ -151,6 +151,7 @@ Every push to `main` builds and uploads the jar as a workflow artifact. Tag a re
 - **Bypasses:** any player with `antimod.bypass` is never probed. Give it sparingly.
 - **False positives:** the fallback comparison is exact. If a mod happens to translate its key to literally `am_fb`, change `detection.fallback-marker` to something more unique.
 - **Anti-cheat sensitivity:** because this uses raw packets and can trigger a rapid open/close of the sign editor, some clients with client-side anti-cheat or protocol validators may complain in their logs. Vanilla and standard modded clients handle it fine.
+- **Server-side anti-cheats:** AntiMod now sends and receives all packets through PacketEvents. Server-side anti-cheats that also use PacketEvents (Nemesis, PaperEngineMode 3, etc.) share the same pipeline instead of fighting over it, so probes and their UPDATE_SIGN responses go through cleanly.
 - **Mod adaptability:** if a mod author becomes aware of this detection and changes their translation keys, add the new keys to config. The mechanism itself keeps working.
 
 ## License
