@@ -31,9 +31,10 @@ public final class AntiMod extends JavaPlugin {
         ActionExecutor actionExecutor = new ActionExecutor(this, violationManager);
         this.detectionManager = new DetectionManager(this, actionExecutor);
 
-        // ProtocolLib packet listener for UPDATE_SIGN responses
-        if (getServer().getPluginManager().getPlugin("ProtocolLib") == null) {
-            getLogger().severe("ProtocolLib is not installed. AntiMod cannot function without it.");
+        // PacketEvents packet listener for UPDATE_SIGN responses
+        if (getServer().getPluginManager().getPlugin("packetevents") == null) {
+            getLogger().severe("PacketEvents is not installed. AntiMod cannot function without it. " +
+                    "Download it from https://modrinth.com/plugin/packetevents");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
