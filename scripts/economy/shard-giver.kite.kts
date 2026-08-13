@@ -1,5 +1,5 @@
 onLoad {
-    server.scheduler.runTaskTimer(20L * 300, 20L * 300) {
+    server.globalRegionScheduler.runAtFixedRate(plugin, 20L * 300, 20L * 300) { _ ->
         server.onlinePlayers.forEach { player ->
             server.dispatchCommand(server.consoleSender, "shards give ${player.name} 5")
         }

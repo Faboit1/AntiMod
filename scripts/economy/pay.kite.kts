@@ -94,7 +94,7 @@ command("pay") {
 }
 
 onLoad {
-    server.scheduler.runTaskTimer(20L * 86400, 20L * 86400) {
+    server.globalRegionScheduler.runAtFixedRate(plugin, 20L * 86400, 20L * 86400) { _ ->
         dailyPaid.clear()
         logger.info("Daily pay limits reset")
     }
