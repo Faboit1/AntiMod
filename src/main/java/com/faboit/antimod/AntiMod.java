@@ -55,10 +55,10 @@ public final class AntiMod extends JavaPlugin {
         // Periodic detection
         if (configManager.isPeriodicEnabled()) {
             long ticks = configManager.getPeriodicIntervalSeconds() * 20L;
-            Bukkit.getScheduler().runTaskTimer(this, () -> {
+            Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, task -> {
                 for (var player : Bukkit.getOnlinePlayers()) {
                     if (!player.hasPermission("antimod.bypass")) {
-                        detectionManager.runFullDetection(player);
+                        player.getScheduler().run(this, t -> detectionManager.runFullDetection(player), null);
                     }
                 }
             }, ticks, ticks);

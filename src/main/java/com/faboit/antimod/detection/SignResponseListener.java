@@ -98,14 +98,13 @@ public final class SignResponseListener extends SimplePacketListenerAbstract {
 
             // Hop back to the main thread for cleanup and game actions.
             final Vector3i cleanupPos = expected;
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                // Remove the ghost sign from the client by sending AIR.
+            player.getScheduler().run(plugin, task -> {
                 manager.sendCleanup(player, cleanupPos);
 
                 for (Map.Entry<String, String> e : detected.entrySet()) {
                     manager.handleDetection(player, e.getKey(), e.getValue());
                 }
-            });
+            }, null);
 
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING,
