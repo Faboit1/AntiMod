@@ -100,7 +100,7 @@ public final class DetectionManager {
 
         // Schedule a timeout — if no response arrives, clean up the ghost sign,
         // discard the session, and try the next queued batch if any.
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        player.getScheduler().runDelayed(plugin, task -> {
             DetectionSession current = activeSessions.get(uuid);
             if (current != null && current == session && !current.isResponded()) {
                 activeSessions.remove(uuid);
@@ -109,7 +109,7 @@ public final class DetectionManager {
                 }
                 dispatchNextQueued(player);
             }
-        }, cfg.getResponseTimeoutTicks());
+        }, null, cfg.getResponseTimeoutTicks());
     }
 
     /**
@@ -130,9 +130,9 @@ public final class DetectionManager {
             // Move on to the next queued batch (if any) after this one resolves.
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline()) {
-                Bukkit.getScheduler().runTaskLater(plugin,
-                        () -> dispatchNextQueued(player),
-                        Math.max(1, plugin.getConfigManager().getCloseDelayTicks() + 2));
+                player.getScheduler().runDelayed(plugin,
+                        task -> dispatchNextQueued(player),
+                        null, Math.max(1, plugin.getConfigManager().getCloseDelayTicks() + 2));
             }
         }
         return session;

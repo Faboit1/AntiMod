@@ -23,11 +23,11 @@ public final class PlayerJoinListener implements Listener {
         if (!plugin.getConfigManager().isOnJoinEnabled()) return;
         if (event.getPlayer().hasPermission("antimod.bypass")) return;
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        event.getPlayer().getScheduler().runDelayed(plugin, task -> {
             if (event.getPlayer().isOnline()) {
                 manager.runFullDetection(event.getPlayer());
             }
-        }, plugin.getConfigManager().getJoinDelayTicks());
+        }, null, plugin.getConfigManager().getJoinDelayTicks());
     }
 
     @EventHandler

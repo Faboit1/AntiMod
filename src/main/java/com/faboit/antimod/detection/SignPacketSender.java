@@ -87,9 +87,9 @@ public final class SignPacketSender {
             if (closeDelay <= 0) {
                 sendCloseWindow(player);
             } else {
-                Bukkit.getScheduler().runTaskLater(plugin,
-                        () -> sendCloseWindow(player),
-                        closeDelay);
+                player.getScheduler().runDelayed(plugin,
+                        task -> sendCloseWindow(player),
+                        null, closeDelay);
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING,
